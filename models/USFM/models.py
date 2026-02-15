@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
-from USFM.utils.model_utils import load_pretrained
+from models.USFM.utils.model_utils import load_pretrained
 
 
 class Mlp(nn.Module):
