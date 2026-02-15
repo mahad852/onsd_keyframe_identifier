@@ -21,7 +21,7 @@ def get_args():
 
 def get_model(args):
     if args.model == "usfm":
-        model_config_path = "model/USFM/configs/model.yaml"
+        model_config_path = "models/USFM/configs/model.yaml"
         with open(model_config_path, "r") as f:
             model_config = yaml.safe_load(f)
 
