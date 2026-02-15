@@ -42,7 +42,7 @@ class USFMClip(nn.Module):
 
         features: torch.Tensor = self.feature_extractor(clip)
 
-        features = features.view(B, P, *features.shape[1]) #reshape to Batches, clip_size, embed_dim (e.g. [4, 11, 768])
+        features = features.view(B, P, *features.shape[1:]) #reshape to Batches, clip_size, embed_dim (e.g. [4, 11, 768])
         logits = self.conv_head(features)
 
         return logits
