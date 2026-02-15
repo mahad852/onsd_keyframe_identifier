@@ -55,7 +55,7 @@ def get_train_test_jsons(args):
     
     random.shuffle(all_json_fnames)
 
-    num_train = len(all_json_fnames) * 0.70
+    num_train = int(len(all_json_fnames) * 0.70)
     return all_json_fnames[:num_train], all_json_fnames[num_train]
 
 def main():
