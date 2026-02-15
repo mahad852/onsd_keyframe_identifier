@@ -1,14 +1,15 @@
 from dataset.DICOMDataset import DICOMDataset
-from models.USFM.models import build_vit
+from models.USFM.USFMClip import USFMClip
 import argparse
 import torch
-import yaml
 from torch.utils.data import DataLoader
 import os
 import random
 from tqdm import tqdm
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+import torch.optim as Optim
+import torch.nn as nn
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -22,12 +23,7 @@ def get_args():
 def get_model(args):
     if args.model == "usfm":
         model_config_path = "models/USFM/configs/model.yaml"
-        with open(model_config_path, "r") as f:
-            model_config = yaml.safe_load(f)
-
-        model_config["model"]["model_cfg"]["num_classes"] = 0
-
-        model = build_vit(model_config["model"]["model_cfg"])
+        model = USFMClip(model_config_path=model_config_path, clip_size=args.context_window * 2 + 1, finetune_encoder=False)
     else:
         raise ValueError(f"Model {args.model} not supported currently.")
     
@@ -75,28 +71,28 @@ def main():
     model = get_model(args)
     model = model.to(device=device)
 
+    optim = Optim.Adam(params=model.parameters(), lr=1e-4)
+    criterion = nn.BCEWithLogitsLoss()
+
     for epoch in tqdm(range(args.epochs), desc="Model training"):
         for _, batch_data in enumerate(train_loader):
             clip = batch_data["clip"].to(device=device)
-            print("clip shape:", clip.shape)
+            label = batch_data["keyframe_mask"].to(device=device)
 
-            B, P, C, H, W = clip.shape
+            optim.zero_grad()
 
-            clip = clip.view(B * P, C, H, W)
-            
-            processed = model(clip)
+            pred = model(clip)
 
-            print("processed original shape:", processed.shape)
+            print(pred.shape, label.shape)
+            loss = criterion(label, pred)
 
-            processed: torch.Tensor
+            loss.backward()
 
+            optim.step()
 
-            processed = processed.view(B, P, *processed.shape[1:])
-
-            print("processed shape after reshaping:", processed.shape)
+            print("Loss:", loss)
 
             break
-
 
 if __name__ == "__main__":
     main()
