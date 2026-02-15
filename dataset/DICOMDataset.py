@@ -345,6 +345,7 @@ class DICOMDataset(Dataset):
                 img = np_gray_to_pil(img)
                 print(np.array(img).shape)
                 out = self.transform(img)  # user-defined
+                print("out shape:", out.shape)
                 transformed.append(out)
             clip_out = torch.Tensor(transformed)
         else:
