@@ -115,7 +115,8 @@ def main():
         context_window=args.context_window,
         pad_mode="zero",
         jsons_to_include=train_jsons,
-        transform=img_transforms
+        transform=img_transforms,
+        zero_prob=0.0
     )
     test_ds = DICOMDataset(
         dicom_dir_path=args.dicom_dir,
@@ -123,7 +124,8 @@ def main():
         context_window=args.context_window,
         pad_mode="zero",
         jsons_to_include=test_jsons,
-        transform=img_transforms
+        transform=img_transforms,
+        zero_prob=0.0
     )
 
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
@@ -135,7 +137,7 @@ def main():
     model = get_model(args).to(device)
 
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCEWithLogitsLoss(pos_weight=35)
 
     for epoch in range(args.epochs):
         model.train()
