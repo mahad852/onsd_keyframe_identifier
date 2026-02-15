@@ -36,8 +36,8 @@ def get_model(args):
 def get_transforms(args):
     if args.model == "usfm":
         return transforms.Compose([
-            transforms.RandomResizedCrop(size=(224,224)),
             transforms.ToTensor(),
+            transforms.RandomResizedCrop(size=(224,224)),
             transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
         ])
     else:
