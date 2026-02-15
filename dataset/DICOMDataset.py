@@ -343,7 +343,7 @@ class DICOMDataset(Dataset):
             for i in range(clip_u8.shape[0]):
                 img = clip_u8[i]
                 img = np_gray_to_pil(img)
-                print(img.shape)
+                print(np.array(img).shape)
                 out = self.transform(img)  # user-defined
                 transformed.append(out)
             clip_out = torch.Tensor(transformed)
