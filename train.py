@@ -139,7 +139,8 @@ def main():
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([35], device=device))
 
-    neg_to_pos_rate = []
+    negs = 0.0
+    poss = 0.0
 
     for epoch in range(args.epochs):
         model.train()
@@ -151,7 +152,8 @@ def main():
             clip = batch["clip"].to(device=device, non_blocking=True)
             y = batch["keyframe_mask"].to(device=device, dtype=torch.float32, non_blocking=True)  # [B,P]
             
-            neg_to_pos_rate.append(((y == 0).sum()/(y == 1).sum()).item())
+            negs = (y == 0).sum()
+            poss = (y == 1).sum()
 
             optim.zero_grad(set_to_none=True)
             logits = model(clip)  # [B,P]
@@ -176,7 +178,7 @@ def main():
             f"rec={metrics['recall']:.3f} | "
             f"f1={metrics['f1']:.3f} | "
             f"(tp={metrics['tp']}, fp={metrics['fp']}, tn={metrics['tn']}, fn={metrics['fn']}) | "
-            f"neg_to_pos_rate={sum(neg_to_pos_rate)/len(neg_to_pos_rate):.3f} | "
+            f"neg_to_pos_rate={negs/poss:.3f} | "
         )
 
 if __name__ == "__main__":
