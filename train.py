@@ -77,7 +77,7 @@ def main():
     for epoch in tqdm(range(args.epochs), desc="Model training"):
         for _, batch_data in enumerate(train_loader):
             clip = batch_data["clip"].to(device=device)
-            label = batch_data["keyframe_mask"].to(device=device)
+            label = batch_data["keyframe_mask"].to(device=device, dtype=torch.float)
 
             optim.zero_grad()
 
