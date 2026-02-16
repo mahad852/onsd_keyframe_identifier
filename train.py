@@ -26,7 +26,7 @@ def get_args():
 def get_model(args):
     if args.model == "usfm":
         model_config_path = "models/USFM/configs/model.yaml"
-        model = USFMClip(model_config_path=model_config_path, clip_size=args.context_window * 2 + 1, finetune_encoder=False)
+        model = USFMClip(model_config_path=model_config_path, clip_size=args.context_window * 2 + 1, finetune_encoder=True)
     else:
         raise ValueError(f"Model {args.model} not supported currently.")
     return model
@@ -137,7 +137,7 @@ def main():
     model = get_model(args).to(device)
 
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([15], device=device))
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([33.9], device=device))
 
     for epoch in range(args.epochs):
         model.train()
