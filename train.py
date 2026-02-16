@@ -137,7 +137,7 @@ def main():
     model = get_model(args).to(device)
 
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([35], device=device))
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([15], device=device))
 
     negs = 0.0
     poss = 0.0
