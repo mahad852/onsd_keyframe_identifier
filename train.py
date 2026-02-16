@@ -139,11 +139,11 @@ def main():
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([15], device=device))
 
-    negs = 0.0
-    poss = 0.0
-
     for epoch in range(args.epochs):
         model.train()
+
+        negs = 0.0
+        poss = 0.0
 
         running_loss = 0.0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=False)
@@ -152,8 +152,8 @@ def main():
             clip = batch["clip"].to(device=device, non_blocking=True)
             y = batch["keyframe_mask"].to(device=device, dtype=torch.float32, non_blocking=True)  # [B,P]
             
-            negs = (y == 0).sum()
-            poss = (y == 1).sum()
+            negs += (y == 0).sum()
+            poss += (y == 1).sum()
 
             optim.zero_grad(set_to_none=True)
             logits = model(clip)  # [B,P]
