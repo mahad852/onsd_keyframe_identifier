@@ -175,7 +175,7 @@ def main():
     model = get_model(args).to(device)
 
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([25.0], device=device))
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([20.0], device=device))
 
     for epoch in range(args.epochs):
         model.train()
@@ -196,7 +196,12 @@ def main():
             optim.zero_grad(set_to_none=True)
             logits = model(clip)  # [B,P]
 
-            loss = criterion(logits, y)
+            bce_loss = criterion(logits, y)
+
+            probs = torch.sigmoid(logits)
+            sparsity_loss = probs.mean()          # encourages fewer positives overall
+            loss = bce_loss + 0.1 * sparsity_loss # tune 0.05–0.5
+
             loss.backward()
             optim.step()
 
