@@ -35,7 +35,7 @@ def get_transforms(args):
     if args.model == "usfm":
         return transforms.Compose([
             transforms.ToTensor(),
-            transforms.RandomResizedCrop(size=(224,224)),
+            transforms.Resize(size=(224,224)),
             transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
         ])
     else:
@@ -103,6 +103,44 @@ def evaluate(model, loader, device, threshold=0.5):
         "tp": tp, "fp": fp, "tn": tn, "fn": fn
     }
 
+@torch.no_grad()
+def find_best_threshold(model, loader, device):
+    model.eval()
+    probs_all, y_all = [], []
+    for batch in loader:
+        clip = batch["clip"].to(device)
+        y = batch["keyframe_mask"].to(device).float()
+        probs = torch.sigmoid(model(clip)).detach().cpu().flatten()
+        y = y.detach().cpu().flatten()
+        probs_all.append(probs)
+        y_all.append(y)
+    probs = torch.cat(probs_all)
+    y = torch.cat(y_all).int()
+
+    best = {"threshold": 0.5, "f1" : -1.0, "precision": -1.0, "recall": -1.0, "tp": 0.0, "fp": 0.0, "tn": 0.0, "fn": 0.0}
+    for t in torch.linspace(0.01, 0.99, 99):
+        yhat = (probs >= t).int()
+        tp = ((yhat==1)&(y==1)).sum().item()
+        fp = ((yhat==1)&(y==0)).sum().item()
+        fn = ((yhat==0)&(y==1)).sum().item()
+        tn = ((yhat==0)&(y==0)).sum().item()
+
+        prec = tp / max(1, tp+fp)
+        rec  = tp / max(1, tp+fn)
+        f1 = 2*prec*rec / max(1e-12, prec+rec)
+        if f1 > best["f1"]:
+            best = {
+                "threshold": float(t),
+                "f1": float(f1),
+                "precision": prec,
+                "recall": rec,
+                "tp": tp,
+                "fp": fp,
+                "tn": tn,
+                "fn": fn
+            }
+    return best  # (threshold, best_f1)
+
 def main():
     args = get_args()
     train_jsons, test_jsons = get_train_test_jsons(args)
@@ -137,7 +175,7 @@ def main():
     model = get_model(args).to(device)
 
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([33.9], device=device))
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([25.0], device=device))
 
     for epoch in range(args.epochs):
         model.train()
@@ -158,7 +196,7 @@ def main():
             optim.zero_grad(set_to_none=True)
             logits = model(clip)  # [B,P]
 
-            loss = criterion(logits, y)  # <- correct order: (pred, target)
+            loss = criterion(logits, y)
             loss.backward()
             optim.step()
 
@@ -167,13 +205,14 @@ def main():
             pbar.set_postfix(loss=f"{avg_loss:.4f}")
 
         # Validation
-        metrics = evaluate(model, test_loader, device, threshold=args.threshold)
+        # metrics = evaluate(model, test_loader, device, threshold=args.threshold)
+        metrics = find_best_threshold(model=model, loader=test_loader, device=device)
 
         # One-line epoch summary
         print(
             f"Epoch {epoch+1}/{args.epochs} | "
-            f"val_frame_acc={metrics['frame_acc']:.3f} | "
-            f"val_clip_acc={metrics['clip_acc']:.3f} | "
+            # f"val_frame_acc={metrics['frame_acc']:.3f} | "
+            # f"val_clip_acc={metrics['clip_acc']:.3f} | "
             f"prec={metrics['precision']:.3f} | "
             f"rec={metrics['recall']:.3f} | "
             f"f1={metrics['f1']:.3f} | "
