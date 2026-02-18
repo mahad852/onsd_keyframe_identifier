@@ -1,15 +1,29 @@
 import math
 from functools import partial
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+import torch.utils.checkpoint as checkpoint
+from mmseg.models.builder import BACKBONES
+from scipy import interpolate
+from timm.models.layers import drop_path, to_2tuple, trunc_normal_
 
-from models.USFM.utils.model_utils import load_pretrained
-from mmengine.config import Config, ConfigDict
-from mmseg.registry import MODELS
-from omegaconf import DictConfig, OmegaConf
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks)."""
+
+    def __init__(self, drop_prob=None):
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
+
+    def extra_repr(self) -> str:
+        return f"p={self.drop_prob}"
+
 
 class Mlp(nn.Module):
     def __init__(
@@ -32,7 +46,7 @@ class Mlp(nn.Module):
         x = self.fc1(x)
         x = self.act(x)
         # x = self.drop(x)
-        # comment out this for the original BERT implement
+        # commit this for the original BERT implement
         x = self.fc2(x)
         x = self.drop(x)
         return x
@@ -56,6 +70,7 @@ class Attention(nn.Module):
         if attn_head_dim is not None:
             head_dim = attn_head_dim
         all_head_dim = head_dim * self.num_heads
+        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = qk_scale or head_dim**-0.5
 
         self.qkv = nn.Linear(dim, all_head_dim * 3, bias=False)
@@ -68,13 +83,13 @@ class Attention(nn.Module):
 
         if window_size:
             self.window_size = window_size
-            # cls to token & token to cls & cls to cls
             self.num_relative_distance = (2 * window_size[0] - 1) * (
                 2 * window_size[1] - 1
             ) + 3
             self.relative_position_bias_table = nn.Parameter(
                 torch.zeros(self.num_relative_distance, num_heads)
             )  # 2*Wh-1 * 2*Ww-1, nH
+            # cls to token & token 2 cls & cls to cls
 
             # get pair-wise relative position index for each token inside the window
             coords_h = torch.arange(window_size[0])
@@ -100,6 +115,8 @@ class Attention(nn.Module):
             relative_position_index[0, 0] = self.num_relative_distance - 1
 
             self.register_buffer("relative_position_index", relative_position_index)
+
+            # trunc_normal_(self.relative_position_bias_table, std=.0)
         else:
             self.window_size = None
             self.relative_position_bias_table = None
@@ -120,6 +137,7 @@ class Attention(nn.Module):
                     self.v_bias,
                 )
             )
+        # qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         qkv = F.linear(input=x, weight=self.qkv.weight, bias=qkv_bias)
         qkv = qkv.reshape(B, N, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k, v = (
@@ -185,6 +203,7 @@ class Block(nn.Module):
             window_size=window_size,
             attn_head_dim=attn_head_dim,
         )
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -218,7 +237,7 @@ class Block(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    """Image to Patch Embedding"""
+    """Image to Patch Embedding."""
 
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
         super().__init__()
@@ -237,10 +256,51 @@ class PatchEmbed(nn.Module):
     def forward(self, x, **kwargs):
         B, C, H, W = x.shape
         # FIXME look at relaxing size constraints
-        assert (
-            H == self.img_size[0] and W == self.img_size[1]
-        ), f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
-        x = self.proj(x).flatten(2).transpose(1, 2)
+        # assert H == self.img_size[0] and W == self.img_size[1], \
+        #     f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        x = self.proj(x)
+        Hp, Wp = x.shape[2], x.shape[3]
+
+        x = x.flatten(2).transpose(1, 2)
+        return x, (Hp, Wp)
+
+
+class HybridEmbed(nn.Module):
+    """CNN Feature Map Embedding Extract feature map from CNN, flatten, project to embedding
+    dim."""
+
+    def __init__(
+        self, backbone, img_size=224, feature_size=None, in_chans=3, embed_dim=768
+    ):
+        super().__init__()
+        assert isinstance(backbone, nn.Module)
+        img_size = to_2tuple(img_size)
+        self.img_size = img_size
+        self.backbone = backbone
+        if feature_size is None:
+            with torch.no_grad():
+                # FIXME this is hacky, but most reliable way of determining the exact dim of the output feature
+                # map for all networks, the feature metadata has reliable channel and stride info, but using
+                # stride to calc feature dim requires info about padding of each stage that isn't captured.
+                training = backbone.training
+                if training:
+                    backbone.eval()
+                o = self.backbone(torch.zeros(1, in_chans, img_size[0], img_size[1]))[
+                    -1
+                ]
+                feature_size = o.shape[-2:]
+                feature_dim = o.shape[1]
+                backbone.train(training)
+        else:
+            feature_size = to_2tuple(feature_size)
+            feature_dim = self.backbone.feature_info.channels()[-1]
+        self.num_patches = feature_size[0] * feature_size[1]
+        self.proj = nn.Linear(feature_dim, embed_dim)
+
+    def forward(self, x):
+        x = self.backbone(x)[-1]
+        x = x.flatten(2).transpose(1, 2)
+        x = self.proj(x)
         return x
 
 
@@ -280,6 +340,8 @@ class RelativePositionBias(nn.Module):
 
         self.register_buffer("relative_position_index", relative_position_index)
 
+        # trunc_normal_(self.relative_position_bias_table, std=.02)
+
     def forward(self):
         relative_position_bias = self.relative_position_bias_table[
             self.relative_position_index.view(-1)
@@ -291,15 +353,16 @@ class RelativePositionBias(nn.Module):
         return relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
 
 
-class VisionTransformer(nn.Module):
-    """Vision Transformer with support for patch or hybrid CNN input stage"""
+@BACKBONES.register_module()
+class HVITBackbone4Seg(nn.Module):
+    """Vision Transformer with support for patch or hybrid CNN input stage."""
 
     def __init__(
         self,
         img_size=224,
         patch_size=16,
         in_chans=3,
-        num_classes=1000,
+        num_classes=80,
         embed_dim=768,
         depth=12,
         num_heads=12,
@@ -309,30 +372,43 @@ class VisionTransformer(nn.Module):
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
-        norm_layer=nn.LayerNorm,
+        hybrid_backbone=None,
+        norm_layer=None,
         init_values=None,
+        use_checkpoint=False,
         use_abs_pos_emb=True,
         use_rel_pos_bias=False,
         use_shared_rel_pos_bias=False,
-        use_mean_pooling=True,
-        init_scale=0.001,
-        **kwargs,
+        pretrained=None,
+        out_indices=[3, 5, 7, 11],
     ):
-        super().__init__()
-        self.num_classes = num_classes
-        self.num_features = self.embed_dim = embed_dim
-        self.patch_size = patch_size
-        self.in_chans = in_chans
 
-        self.patch_embed = PatchEmbed(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
+        super().__init__()
+        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        self.num_classes = num_classes
+        self.num_features = self.embed_dim = (
+            embed_dim  # num_features for consistency with other models
         )
+
+        if hybrid_backbone is not None:
+            self.patch_embed = HybridEmbed(
+                hybrid_backbone,
+                img_size=img_size,
+                in_chans=in_chans,
+                embed_dim=embed_dim,
+            )
+        else:
+            self.patch_embed = PatchEmbed(
+                img_size=img_size,
+                patch_size=patch_size,
+                in_chans=in_chans,
+                embed_dim=embed_dim,
+            )
         num_patches = self.patch_embed.num_patches
+        self.out_indices = out_indices
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        # self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         if use_abs_pos_emb:
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         else:
@@ -350,6 +426,7 @@ class VisionTransformer(nn.Module):
             x.item() for x in torch.linspace(0, drop_path_rate, depth)
         ]  # stochastic depth decay rule
         self.use_rel_pos_bias = use_rel_pos_bias
+        self.use_checkpoint = use_checkpoint
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -370,26 +447,47 @@ class VisionTransformer(nn.Module):
                 for i in range(depth)
             ]
         )
-        self.norm = nn.Identity() if use_mean_pooling else norm_layer(embed_dim)
-        self.fc_norm = norm_layer(embed_dim) if use_mean_pooling else None
-        self.head = (
-            nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        )
 
         if self.pos_embed is not None:
-            self._trunc_normal_(self.pos_embed, std=0.02)
-        self._trunc_normal_(self.cls_token, std=0.02)
-        if num_classes > 0:
-            self._trunc_normal_(self.head.weight, std=0.02)
+            trunc_normal_(self.pos_embed, std=0.02)
+        trunc_normal_(self.cls_token, std=0.02)
+        # trunc_normal_(self.mask_token, std=.02)
+        self.out_indices = out_indices
+
+        if patch_size == 16:
+            self.fpn1 = nn.Sequential(
+                nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=2, stride=2),
+                nn.SyncBatchNorm(embed_dim),
+                nn.GELU(),
+                nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=2, stride=2),
+            )
+
+            self.fpn2 = nn.Sequential(
+                nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=2, stride=2),
+            )
+
+            self.fpn3 = nn.Identity()
+
+            self.fpn4 = nn.MaxPool2d(kernel_size=2, stride=2)
+        elif patch_size == 8:
+            self.fpn1 = nn.Sequential(
+                nn.ConvTranspose2d(embed_dim, embed_dim, kernel_size=2, stride=2),
+            )
+
+            self.fpn2 = nn.Identity()
+
+            self.fpn3 = nn.Sequential(
+                nn.MaxPool2d(kernel_size=2, stride=2),
+            )
+
+            self.fpn4 = nn.Sequential(
+                nn.MaxPool2d(kernel_size=4, stride=4),
+            )
+        # Georgejiao: add the weights
         self.apply(self._init_weights)
         self.fix_init_weight()
-
-        if num_classes > 0:
-            self.head.weight.data.mul_(init_scale)
-            self.head.bias.data.mul_(init_scale)
-
-    def _trunc_normal_(self, tensor, mean=0.0, std=1.0):
-        trunc_normal_(tensor, mean=mean, std=std)
+        if pretrained is not None:
+            self.init_weights(pretrained)
 
     def fix_init_weight(self):
         def rescale(param, layer_id):
@@ -401,16 +499,39 @@ class VisionTransformer(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            self._trunc_normal_(m.weight, std=0.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-        elif isinstance(m, nn.Conv2d):
-            self._trunc_normal_(m.weight, std=0.02)
-            if m.bias is not None:
+
+    def init_weights(self, pretrained=None):
+        """Initialize the weights in backbone.
+
+        Args:
+            pretrained (str, optional): Path to pre-trained weights.
+                Defaults to None.
+        """
+
+        def _init_weights(m):
+            if isinstance(m, nn.Linear):
+                trunc_normal_(m.weight, std=0.02)
+                if isinstance(m, nn.Linear) and m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.LayerNorm):
                 nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.weight, 1.0)
+
+        # NOTE pretrained weights will be loaded in the build function
+        # if isinstance(pretrained, str):
+        #     self.apply(_init_weights)
+        #     load_pretrained(self, pretrained, strict=False)
+        # elif pretrained is None:
+        #     self.apply(_init_weights)
+        # else:
+        #     raise TypeError("pretrained must be a str or None")
+        self.apply(_init_weights)
 
     def get_num_layers(self):
         return len(self.blocks)
@@ -419,17 +540,9 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {"pos_embed", "cls_token"}
 
-    def get_classifier(self):
-        return self.head
-
-    def reset_classifier(self, num_classes, global_pool=""):
-        self.num_classes = num_classes
-        self.head = (
-            nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        )
-
     def forward_features(self, x):
-        x = self.patch_embed(x)
+        B, C, H, W = x.shape
+        x, (Hp, Wp) = self.patch_embed(x)
         batch_size, seq_len, _ = x.size()
 
         cls_tokens = self.cls_token.expand(
@@ -441,36 +554,22 @@ class VisionTransformer(nn.Module):
         x = self.pos_drop(x)
 
         rel_pos_bias = self.rel_pos_bias() if self.rel_pos_bias is not None else None
-        for blk in self.blocks:
-            x = blk(x, rel_pos_bias=rel_pos_bias)
+        features = []
+        for i, blk in enumerate(self.blocks):
+            if self.use_checkpoint:
+                x = checkpoint.checkpoint(blk, x, rel_pos_bias)
+            else:
+                x = blk(x, rel_pos_bias)
+            if i in self.out_indices:
+                xp = x[:, 1:, :].permute(0, 2, 1).reshape(B, -1, Hp, Wp)
+                features.append(xp.contiguous())
 
-        x = self.norm(x)
-        if self.fc_norm is not None:
-            t = x[:, 1:, :]
-            return self.fc_norm(t.mean(1))
-        else:
-            return x[:, 0]
+        ops = [self.fpn1, self.fpn2, self.fpn3, self.fpn4]
+        for i in range(len(features)):
+            features[i] = ops[i](features[i])
+
+        return tuple(features)
 
     def forward(self, x):
         x = self.forward_features(x)
-        x = self.head(x)
         return x
-
-
-def make(**config):
-    print(config)
-
-
-def build_vit(model_cfg):
-    model = VisionTransformer(norm_layer=partial(nn.LayerNorm, eps=1e-6), **model_cfg)
-    if model_cfg["pretrained"]:
-        load_pretrained(model_cfg, model)
-    return model 
-
-def build_seg_model(model_cfg):
-    model = MODELS.build(
-        ConfigDict(OmegaConf.to_container(model_cfg, resolve=True))
-    )
-    load_pretrained(model_cfg.backbone, model.backbone)
-
-    return model
