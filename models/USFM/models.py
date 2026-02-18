@@ -11,6 +11,7 @@ from mmengine.config import Config, ConfigDict
 from mmseg.registry import MODELS
 from omegaconf import DictConfig, OmegaConf
 from models.USFM.segbackbone import HVITBackbone4Seg
+from models.USFM.seghead import ATMHead
 
 class Mlp(nn.Module):
     def __init__(
