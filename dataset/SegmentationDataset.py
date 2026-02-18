@@ -307,7 +307,7 @@ class DICOMSegmentationDataset(Dataset):
         
         dcm_path = os.path.join(self.dicom_dir_path, dicom_name)
         ds = pydicom.dcmread(dcm_path)
-        mask = crop_ultrasound_frames(ds, mask=mask)
+        mask = crop_ultrasound_frames(ds, full=mask)
         # Convert grayscale -> RGB for pretrained encoders
         
 
