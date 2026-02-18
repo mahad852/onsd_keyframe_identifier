@@ -191,7 +191,8 @@ def main():
     print("TRAIN", end="\n\n\n\n\n\n\n\n")
 
     for elem in train_ds:
-        print("Classes available:", elem["mask"].unique())
+        if len(elem["mask"].unique()) > 0:
+            print("Classes available:", elem["mask"].unique())
     
     for epoch in range(args.epochs):
         model.train()
