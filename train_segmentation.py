@@ -120,14 +120,17 @@ def main():
     n = 0
     for b in train_loader:
         imgs = b["image"].to(device=device)
-        masks = b["mask"].to(device=device)
+        masks = b["mask"].to(device=device).long()
+
+        extra_features = model.module.backbone(imgs)
+
+        loss, outputs, labels = model.module.decode_head.forward_with_loss(extra_features, masks)
+
 
         # for mask in masks:
         #     print(mask.unique(), mask.sum())
 
-        output = model(imgs)
-
-        print(output.shape)
+        # output = model.foward_with_loss()
         
         n += 1
 
