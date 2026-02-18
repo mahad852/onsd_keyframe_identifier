@@ -59,6 +59,9 @@ def get_model(args, num_classes):
         config["model"]["model_cfg"]["decode_head"]["num_classes"] = num_classes
         config["model"]["model_cfg"]["decode_head"]["loss_decode"]["num_classes"] = num_classes
 
+        config["model"]["model_cfg"]["decode_head"]["img_size"] = 224
+        config["model"]["model_cfg"]["backbone"]["img_size"] = 224
+
         model = build_seg_model(config["model"]["model_cfg"])
     else:
         raise ValueError(f"Model {args.model} not supported currently.")
