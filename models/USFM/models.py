@@ -12,6 +12,7 @@ from mmseg.registry import MODELS
 from omegaconf import DictConfig, OmegaConf
 from models.USFM.segbackbone import HVITBackbone4Seg
 from models.USFM.seghead import ATMHead
+from models.USFM.atm_loss import ATMLoss
 
 class Mlp(nn.Module):
     def __init__(
