@@ -10,6 +10,8 @@ import torchvision.transforms.functional as F
 import numpy as np
 from models.USFM.models import build_seg_model
 import yaml
+import torch.optim as Optim
+from tqdm import tqdm
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -18,9 +20,9 @@ def get_args():
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--batch_size", type=int, default=4)  
     parser.add_argument("--num_workers", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=10)
 
     return parser.parse_args()
-
 
 class MaskResizeOnly:
     def __init__(self, size=(224,224)):
@@ -118,24 +120,31 @@ def main():
     print(test_ds.get_num_classes(), test_ds.get_class_name_to_id(), len(test_ds))
     
     n = 0
-    for b in train_loader:
-        imgs = b["image"].to(device=device)
-        masks = b["mask"].to(device=device).long()
 
-        extra_features = model.backbone(imgs)
+    optim = Optim.Adam(params=model.parameters(), lr=1e-4)
 
-        loss, outputs, labels = model.decode_head.forward_with_loss(extra_features, masks)
+    for epoch in range(args.epochs):
+        model.train()
 
-
-        # for mask in masks:
-        #     print(mask.unique(), mask.sum())
-
-        # output = model.foward_with_loss()
+        running_loss = 0.0
         
-        n += 1
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=True)
 
-        if n >= 20:
-            break
+        for step, batch in enumerate(pbar):
+            imgs = batch["image"].to(device=device)
+            masks = batch["mask"].to(device=device).long()
+
+            optim.zero_grad(set_to_none=True)
+
+            extra_features = model.backbone(model.data_preprocessor(imgs))
+            loss, outputs, labels = model.decode_head.forward_with_loss(extra_features, masks)
+
+            loss.backward()
+            optim.step()
+
+            running_loss += loss.item()
+            avg_loss = running_loss / (step + 1)
+            pbar.set_postfix(loss=f"{avg_loss:.4f}")
 
 if __name__ == "__main__":
     main()
