@@ -12,6 +12,7 @@ from models.USFM.models import build_seg_model
 import yaml
 import torch.optim as Optim
 from tqdm import tqdm
+from utils.segmentation import *
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -79,6 +80,67 @@ def get_train_test_jsons(args):
     test = all_json_fnames[num_train:]
     return train, test
 
+@torch.no_grad()
+def evaluate(model, loader, device, num_classes: int, ignore_bg: bool = True):
+    model.eval()
+
+    total_tp = torch.zeros(num_classes, device=device, dtype=torch.float32)
+    total_fp = torch.zeros(num_classes, device=device, dtype=torch.float32)
+    total_fn = torch.zeros(num_classes, device=device, dtype=torch.float32)
+
+    # for mAP-like
+    all_ap_preds = []
+    all_ap_gts = []
+
+    for batch in tqdm(loader, desc="Evaluating", leave=False):
+        imgs = batch["image"].to(device=device)
+        gt   = batch["mask"].to(device=device).long()  # [B,H,W]
+
+        # forward
+        feats = model.backbone(model.data_preprocessor(imgs))
+        out = model.decode_head(feats)  # dict with "pred"
+        semseg = out["pred"]            # [B,C,H,W] (prob-like)
+        pred = semseg.argmax(dim=1)     # [B,H,W]
+
+        tp, fp, fn = compute_confusion_stats(pred, gt, num_classes)
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+
+        all_ap_preds.append(pred.detach().cpu())
+        all_ap_gts.append(gt.detach().cpu())
+
+    dice, iou = dice_iou_from_stats(total_tp, total_fp, total_fn)
+
+    # mean over foreground classes by default
+    if ignore_bg:
+        dice_mean = dice[1:].mean().item() if num_classes > 1 else dice.mean().item()
+        iou_mean  = iou[1:].mean().item()  if num_classes > 1 else iou.mean().item()
+    else:
+        dice_mean = dice.mean().item()
+        iou_mean  = iou.mean().item()
+
+    # mAP-like on CPU tensors
+    pred_cat = torch.cat(all_ap_preds, dim=0)
+    gt_cat   = torch.cat(all_ap_gts, dim=0)
+    map_like, prec_thr, rec_thr = semantic_map_like_ap(
+        pred_cat, gt_cat, num_classes=num_classes, ignore_bg=ignore_bg
+    )
+
+    # return everything you might want to print/log
+    return {
+        "dice_per_class": dice.detach().cpu().tolist(),
+        "iou_per_class": iou.detach().cpu().tolist(),
+        "dice_mean": dice_mean,
+        "iou_mean": iou_mean,
+        "mAP_like_50_95": map_like,
+        "prec_by_thr": prec_thr,
+        "rec_by_thr": rec_thr,
+        "tp": total_tp.detach().cpu().tolist(),
+        "fp": total_fp.detach().cpu().tolist(),
+        "fn": total_fn.detach().cpu().tolist(),
+    }
+
 def main():
     args = get_args()
 
@@ -145,6 +207,21 @@ def main():
             running_loss += loss.item()
             avg_loss = running_loss / (step + 1)
             pbar.set_postfix(loss=f"{avg_loss:.4f}")
+
+        metrics = evaluate(
+            model=model,
+            loader=test_loader,
+            device=device,
+            num_classes=train_ds.get_num_classes(),  # includes background
+            ignore_bg=True,
+        )
+
+        print(
+            f"Epoch {epoch+1}/{args.epochs} | "
+            f"val_dice={metrics['dice_mean']:.4f} | "
+            f"val_iou={metrics['iou_mean']:.4f} | "
+            f"mAP(0.50:0.95)~={metrics['mAP_like_50_95']:.4f}"
+        )
 
 if __name__ == "__main__":
     main()

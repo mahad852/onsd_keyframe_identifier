@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Any, Optional
 from collections import OrderedDict
 from dataset.DICOMDataset import crop_ultrasound_frames, to_uint8, np_gray_to_pil
 from PIL import Image
+from utils.segmentation import crop_ultrasound_mask_np
 
 def _maybe_scale_xy(x: float, y: float, W: int, H: int) -> Tuple[int, int]:
     # Same as your helper
@@ -303,7 +304,10 @@ class DICOMSegmentationDataset(Dataset):
 
         img_u8 = to_uint8(pix[frame_idx])  # (H,W)
         mask = self._render_mask(obj, frame_idx, H=img_u8.shape[0], W=img_u8.shape[1])  # (H,W)
-
+        
+        dcm_path = os.path.join(self.dicom_dir_path, dicom_name)
+        ds = pydicom.dcmread(dcm_path)
+        mask = crop_ultrasound_mask_np(ds, mask=mask)
         # Convert grayscale -> RGB for pretrained encoders
         
 
@@ -313,7 +317,7 @@ class DICOMSegmentationDataset(Dataset):
         else:
             img_rgb = cv2.cvtColor(img_u8, cv2.COLOR_GRAY2RGB)  # (H,W,3)
             img_t = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0  # [3,H,W]
-
+ 
         if self.mask_transform is not None:
             mask_pil = Image.fromarray(np.array(mask.astype("uint8")), mode="L")
             mask_t = self.mask_transform(mask_pil)
