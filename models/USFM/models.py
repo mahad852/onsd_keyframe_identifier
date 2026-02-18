@@ -10,6 +10,7 @@ from models.USFM.utils.model_utils import load_pretrained
 from mmengine.config import Config, ConfigDict
 from mmseg.registry import MODELS
 from omegaconf import DictConfig, OmegaConf
+from models.USFM.segbackbone import HVITBackbone4Seg
 
 class Mlp(nn.Module):
     def __init__(
