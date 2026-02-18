@@ -468,12 +468,12 @@ def build_vit(model_cfg):
     return model 
 
 def build_seg_model(model_cfg):
-    if isinstance(model_cfg, dict):
-        model_cfg = OmegaConf.create(model_cfg)
+    # if isinstance(model_cfg, dict):
+    #     model_cfg = OmegaConf.create(model_cfg)
 
     model = MODELS.build(
-        ConfigDict(OmegaConf.to_container(model_cfg, resolve=True))
+        ConfigDict(model_cfg)
     )
-    load_pretrained(model_cfg.backbone, model.backbone)
+    load_pretrained(model_cfg["backbone"], model.backbone)
 
     return model
