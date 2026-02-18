@@ -51,7 +51,7 @@ def get_mask_transforms(args):
     
 def get_model(args, num_classes):
     if args.model == "usfm":
-        model_config_path = "models/USFM/configs/model.yaml"
+        model_config_path = "models/USFM/configs/SegVit.yaml"
 
         with open(model_config_path, "r") as f:
             config = yaml.safe_load(f)
