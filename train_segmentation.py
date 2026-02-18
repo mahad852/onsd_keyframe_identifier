@@ -185,6 +185,10 @@ def main():
 
     optim = Optim.Adam(params=model.parameters(), lr=1e-4)
 
+    for batch in test_ds:
+        for mask in batch["mask"]:
+            print("Classes available:", mask.unique())
+
     for epoch in range(args.epochs):
         model.train()
 
@@ -210,7 +214,7 @@ def main():
 
         metrics = evaluate(
             model=model,
-            loader=test_loader,
+            loader=test_loader, 
             device=device,
             num_classes=train_ds.get_num_classes(),  # includes background
             ignore_bg=True,
