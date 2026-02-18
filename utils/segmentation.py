@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 import numpy as np
 from dataset.DICOMDataset import get_bmode_region
 

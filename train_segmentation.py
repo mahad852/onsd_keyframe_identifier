@@ -12,7 +12,7 @@ from models.USFM.models import build_seg_model
 import yaml
 import torch.optim as Optim
 from tqdm import tqdm
-from utils.segmentation import *
+from utils.segmentation import compute_confusion_stats, dice_iou_from_stats, semantic_map_like_ap
 
 def get_args():
     parser = argparse.ArgumentParser()
