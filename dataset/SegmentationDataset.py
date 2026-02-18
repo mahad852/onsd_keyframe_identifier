@@ -220,13 +220,15 @@ class DICOMSegmentationDataset(Dataset):
 
     def _load_cropped_pixel(self, dicom_name: str) -> np.ndarray:
         if dicom_name in self._cache:
-            arr = self._cache.pop(dicom_name)
-            self._cache[dicom_name] = arr
-            return arr
+            arr, orig_dims = self._cache.pop(dicom_name)
+            self._cache[dicom_name] = (arr, orig_dims)
+            return arr, orig_dims
 
         dcm_path = os.path.join(self.dicom_dir_path, dicom_name)
         ds = pydicom.dcmread(dcm_path)
         pix = ds.pixel_array
+        
+        orig_dims = [pix.shape[-2], pix.shape[-1]]
 
         # normalize cine shape
         if pix.ndim == 2:
@@ -245,10 +247,10 @@ class DICOMSegmentationDataset(Dataset):
             # fallback: no crop
             pass
 
-        self._cache[dicom_name] = pix
+        self._cache[dicom_name] = (pix, orig_dims)
         if len(self._cache) > self.cache_size:
             self._cache.popitem(last=False)
-        return pix
+        return pix, orig_dims
 
     def _render_mask(self, obj: dict, frame_idx: int, H: int, W: int) -> np.ndarray:
         mask = np.zeros((H, W), dtype=np.uint8)
@@ -298,12 +300,12 @@ class DICOMSegmentationDataset(Dataset):
         with open(json_path, "r") as f:
             obj = json.load(f)
 
-        pix = self._load_cropped_pixel(dicom_name)  # (T,H,W)
+        pix, orig_dims = self._load_cropped_pixel(dicom_name)  # (T,H,W)
         T, H, W = pix.shape
         frame_idx = max(0, min(int(frame_idx), T - 1))
 
         img_u8 = to_uint8(pix[frame_idx])  # (H,W)
-        mask = self._render_mask(obj, frame_idx, H=img_u8.shape[0], W=img_u8.shape[1])  # (H,W)
+        mask = self._render_mask(obj, frame_idx, H=orig_dims[0], W=orig_dims[1])  # (H,W)
         
         dcm_path = os.path.join(self.dicom_dir_path, dicom_name)
         ds = pydicom.dcmread(dcm_path)
