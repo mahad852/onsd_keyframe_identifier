@@ -122,9 +122,9 @@ def main():
         imgs = b["image"].to(device=device)
         masks = b["mask"].to(device=device).long()
 
-        extra_features = model.module.backbone(imgs)
+        extra_features = model.backbone(imgs)
 
-        loss, outputs, labels = model.module.decode_head.forward_with_loss(extra_features, masks)
+        loss, outputs, labels = model.decode_head.forward_with_loss(extra_features, masks)
 
 
         # for mask in masks:
