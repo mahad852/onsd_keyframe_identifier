@@ -9,10 +9,10 @@ model:
 
   model_cfg:
     type: EncoderDecoder
-    pretrained: /home/mali2/eus-xai/USFM/weights/USFM_latest.pth
+    pretrained: #
     backbone:
       type: HVITBackbone4Seg
-      pretrained: #
+      pretrained: /home/mali2/eus-xai/USFM/weights/USFM_latest.pth
       img_size: ${data.img_size}
       patch_size: 16
       embed_dim: 768
