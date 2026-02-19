@@ -62,7 +62,7 @@ def get_bmode_region(ds) -> Optional[Tuple[int, int, int, int]]:
             best = (x0, y0, x1, y1)
     return best
 
-def crop_ultrasound_frames(ds, full: np.ndarray) -> np.ndarray:
+def crop_ultrasound_frames(ds, full: np.ndarray, side_margin: int = 125) -> np.ndarray:
     region = get_bmode_region(ds)
     if region is None:
         return full
@@ -73,13 +73,13 @@ def crop_ultrasound_frames(ds, full: np.ndarray) -> np.ndarray:
         H, W = full.shape
         x0 = max(0, min(x0, W)); x1 = max(0, min(x1, W))
         y0 = max(0, min(y0, H)); y1 = max(0, min(y1, H))
-        # note: assumes x0+125 < x1-125; we guard later
-        return full[y0:y1, x0 + 125:x1 - 125]
+        # note: assumes x0+side_margin < x1-side_margin; we guard later
+        return full[y0:y1, x0 + side_margin:x1 - side_margin]
     elif full.ndim == 3:
         T, H, W = full.shape
         x0 = max(0, min(x0, W)); x1 = max(0, min(x1, W))
         y0 = max(0, min(y0, H)); y1 = max(0, min(y1, H))
-        return full[:, y0:y1, x0 + 125:x1 - 125]
+        return full[:, y0:y1, x0 + side_margin:x1 - side_margin]
     else:
         raise ValueError(f"Unexpected pixel_array shape: {full.shape}")
 
