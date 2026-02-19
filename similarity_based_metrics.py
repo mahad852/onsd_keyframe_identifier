@@ -23,7 +23,9 @@ def get_args():
     parser.add_argument("--model", type=str, required=True)
 
     parser.add_argument("--output_dir", type=str, required=True)
-
+    parser.add_argument("--topk", type=int, default=3)
+    parser.add_argument("--nms_radius", type=int, default=3)
+    parser.add_argument("--tau", type=float, default=2.0)
     return parser.parse_args()
 
 def get_model(args):
