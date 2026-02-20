@@ -145,7 +145,7 @@ def main():
         img = img.to(device=device)
 
         features = model.backbone(model.data_preprocessor(img)) #[1, d]
-        print(features.shape)
+        features = torch.mean(features[2], dim=[2, 3])
 
         features.append(features[0].cpu().numpy())
         labels.append(label)
