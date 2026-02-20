@@ -154,7 +154,7 @@ def main():
     if not os.path.exists(args.graph_dir):
         os.makedirs(args.graph_dir)
 
-    plot_tsne(features=all_features, labels=labels, graph_dir=args.graph_dir)
+    plot_tsne(features=all_features, labels=labels, graph_dir=args.graph_dir, title="Key-frame vs. Normal frames")
 
 
 if __name__ == "__main__":

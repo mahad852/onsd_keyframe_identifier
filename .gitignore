@@ -1,3 +1,4 @@
 logs/*
 __pycache__/*
 eval_topk_keyframes.py
+graphs/*
