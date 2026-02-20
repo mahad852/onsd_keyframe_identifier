@@ -332,4 +332,5 @@ class DICOMSegmentationDataset(Dataset):
             "mask": mask_t,
             "dicom": dicom_name,
             "frame_idx": frame_idx,
+            "orig_dims": orig_dims
         }
