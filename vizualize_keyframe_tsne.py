@@ -134,7 +134,7 @@ def main():
 
     model.eval()
     labels = []
-    features = []
+    all_features = []
 
     for obj in tqdm(ds, desc="Computing frame scores"):        
         img = obj["x"] # context_window=0 should give [1,C,H,W]
@@ -147,14 +147,14 @@ def main():
         features = model.backbone(model.data_preprocessor(img)) #[1, d]
         features = torch.mean(features[2], dim=[2, 3])
 
-        features.append(features[0].cpu().numpy())
+        all_features.append(features[0].cpu().numpy())
         labels.append(label)
 
 
     if not os.path.exists(args.graph_dir):
         os.makedirs(args.graph_dir)
 
-    plot_tsne(features=features, labels=labels, graph_dir=args.graph_dir)
+    plot_tsne(features=all_features, labels=labels, graph_dir=args.graph_dir)
 
 
 if __name__ == "__main__":
