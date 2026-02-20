@@ -215,7 +215,9 @@ class DICOMKeyframeDataset(Dataset):
             (ds, frames) = _read_dicom_frames(dicom_path)  # (T,H,W)
             self.cache = (it.dicom_fname, (ds, frames))
         else:
-            ds, frames = self.cache[1]        
+            ds, frames = self.cache[1]
+
+        _, H, W = frames.shape
 
         frames = crop_ultrasound_frames(ds, frames, side_margin=self.side_margin)  # (T,Hc,Wc)
 
@@ -248,5 +250,6 @@ class DICOMKeyframeDataset(Dataset):
             "frame_idx": t,          # global center frame index
             "x": x,                  # [P,C,H,W]
             "is_keyframe": is_kf,    # [P] bool mask (window-local)
-            "center_pos": center_pos # int
+            "center_pos": center_pos, # int
+            "orig_dims": torch.tensor([H, W], dtype=torch.int32)
         }
