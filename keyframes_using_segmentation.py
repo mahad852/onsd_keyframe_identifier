@@ -196,7 +196,7 @@ def main():
 
     model.eval()
 
-    for obj in ds:
+    for obj in tqdm(ds, desc="Computing frame scores"):
         dicom_name = obj["dicom"]
         frame_idx = obj["frame_idx"]
         
