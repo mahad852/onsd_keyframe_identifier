@@ -20,7 +20,6 @@ def get_args():
     parser.add_argument("--dicom_dir", type=str, required=True)    
     parser.add_argument("--json_dir", type=str, required=True)
     parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--log_dir", type=str, required=True)
     return parser.parse_args()
 
