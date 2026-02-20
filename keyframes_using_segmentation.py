@@ -33,7 +33,7 @@ def get_image_transforms(args):
     raise ValueError(f"Model {args.model} not supported currently.")
 
 def get_segmentation_logs(log_dir):
-    with open(log_dir, "r") as f:
+    with open(os.path.join(log_dir, "log_obj.json"), "r") as f:
         logs = json.load(f)
     return logs
 
